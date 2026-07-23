@@ -180,14 +180,6 @@ func executeCheck(event *corev2.Event) (int, error) {
 
 	exitCode := severity(stateOK, secondsInState, transitionErr == nil)
 
-	// seconds_in_state is ready-made for alert thresholds;
-	// last_transition lets dashboards compute the live duration at
-	// render time (now - last_transition), unaffected by check cadence.
-	perfdata := fmt.Sprintf("exit_code=%d", exitCode)
-	if transitionErr == nil {
-		perfdata += fmt.Sprintf(" seconds_in_state=%d last_transition=%d", secondsInState, int64(transition))
-	}
-
 	summary := fmt.Sprintf("state is %s", state.Name)
 	if !stateOK {
 		summary += fmt.Sprintf(" (expected %s)", plugin.State)
@@ -198,8 +190,29 @@ func executeCheck(event *corev2.Event) (int, error) {
 		summary += fmt.Sprintf(", last transition unavailable: %s", transitionErr)
 	}
 
-	fmt.Printf("%s: %s | %s\n", stateLabels[exitCode], summary, perfdata)
+	line := fmt.Sprintf("%s: %s", stateLabels[exitCode], summary)
+	if perfdata := perfdataLine(stateOK, secondsInState, transitionErr == nil); perfdata != "" {
+		line += " | " + perfdata
+	}
+	fmt.Println(line)
 	return exitCode, nil
+}
+
+// perfdataLine builds the nagios_perfdata section emitted after the
+// summary. It carries a single metric, keepalived_bad_state_seconds: the
+// number of seconds the instance has been in a state other than --state (0
+// while it matches), so a dashboard can graph time-in-a-bad-state directly
+// (flat 0 when in --state, rising otherwise). It is derived from the last
+// transition timestamp, so it is empty when that could not be read.
+func perfdataLine(stateOK bool, secondsInState int64, transitionKnown bool) string {
+	if !transitionKnown {
+		return ""
+	}
+	badStateSeconds := int64(0)
+	if !stateOK {
+		badStateSeconds = secondsInState
+	}
+	return fmt.Sprintf("keepalived_bad_state_seconds=%d", badStateSeconds)
 }
 
 var stateLabels = map[int]string{

@@ -90,14 +90,38 @@ spec:
   - elfranne/sensu-keepalived-check
 ```
 
-The check emits [nagios perfdata][12] after the status summary: `exit_code` (0 when the
-instance is in the expected state, 2 otherwise) and, when the last transition timestamp is
-available, `seconds_in_state` (how long the instance has been in its current state, as of
-the check run) and `last_transition` (unix timestamp of the last state change). Use
-`seconds_in_state` for alert thresholds; for dashboards, compute `now() - last_transition`
-to display the live duration with second precision regardless of the check interval. Setting
-`output_metric_format: nagios_perfdata` makes Sensu extract them as metrics; add
-`output_metric_handlers` to forward them to your metrics pipeline.
+The check emits a single [nagios perfdata][12] metric after the status summary:
+
+- `keepalived_bad_state_seconds` — how long the instance has been in a state other than
+  `--state`; `0` while it matches `--state`. It is derived from the last transition
+  timestamp, so it is omitted when that cannot be read (for example, an unreadable data
+  file), in which case the check prints just the status summary with no metric.
+
+The check result itself — the `OK`/`WARNING`/`CRITICAL` status and the process exit code —
+is unchanged; it is simply not emitted as a metric.
+
+Setting `output_metric_format: nagios_perfdata` makes Sensu extract
+`keepalived_bad_state_seconds` as a metric; add `output_metric_handlers` to forward it to
+your metrics pipeline.
+
+### Dashboard (Grafana + InfluxDB 1.x / InfluxQL)
+
+With the [sensu-influxdb-handler][13], `keepalived_bad_state_seconds` becomes a measurement
+of the same name, with the value in a `value` field and the reporting host in a
+`sensu_entity_name` tag (the `--legacy` handler flag uses `host` instead — adjust the
+query accordingly).
+
+**How long a node has been in a bad state** — reads `0` while the instance is in its
+expected `--state` and climbs while it is in any other state:
+
+```sql
+SELECT last("value") FROM "keepalived_bad_state_seconds"
+WHERE $timeFilter
+GROUP BY time($__interval), "sensu_entity_name" fill(null)
+```
+
+The check emits the ready-to-graph value directly, so the panel needs no `now()` — which
+InfluxQL 1.x cannot use in a `SELECT` expression anyway; no Flux / InfluxDB 2.x required.
 
 ## Installation from source
 
@@ -127,3 +151,4 @@ For more information about contributing to this plugin, see [Contributing][1].
 [10]: https://docs.sensu.io/sensu-go/latest/reference/assets/
 [11]: https://keepalived.org/
 [12]: https://docs.sensu.io/sensu-go/latest/observability-pipeline/observe-schedule/collect-metrics-with-checks/
+[13]: https://github.com/sensu/sensu-influxdb-handler
