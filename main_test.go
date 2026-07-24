@@ -125,6 +125,43 @@ func TestSeverity(t *testing.T) {
 	}
 }
 
+func TestPerfdataLine(t *testing.T) {
+	cases := []struct {
+		name            string
+		stateOK         bool
+		secondsInState  int64
+		transitionKnown bool
+		want            string
+	}{
+		{
+			// Expected state: the metric is 0 even though the instance has
+			// been in the (correct) state for a while.
+			"state matches --state",
+			true, 42, true,
+			"keepalived_bad_state_seconds=0",
+		},
+		{
+			// Wrong state: the metric tracks seconds_in_state.
+			"state does not match --state",
+			false, 10, true,
+			"keepalived_bad_state_seconds=10",
+		},
+		{
+			// The transition timestamp is unreadable, so the metric is
+			// unknown and no perfdata is emitted.
+			"transition unavailable emits no metric",
+			false, 0, false,
+			"",
+		},
+	}
+
+	for _, c := range cases {
+		if got := perfdataLine(c.stateOK, c.secondsInState, c.transitionKnown); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestIsDBusAccessDenied(t *testing.T) {
 	denied := dbus.Error{Name: "org.freedesktop.DBus.Error.AccessDenied"}
 	if !isDBusAccessDenied(fmt.Errorf("PrintData: %w", denied)) {
